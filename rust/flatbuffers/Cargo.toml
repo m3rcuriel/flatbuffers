@@ -11,3 +11,8 @@ categories = ["encoding", "data-structures", "memory-management"]
 
 [dependencies]
 smallvec = "0.6"
+fixedvec = { git = "https://github.com/m3rcuriel/fixedvec-rs", branch = "range_index" }
+
+[features]
+std = []
+default = ["std"]

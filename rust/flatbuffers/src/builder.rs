@@ -15,6 +15,7 @@
  */
 
 extern crate smallvec;
+extern crate fixedvec;
 
 use std::cmp::max;
 use std::marker::PhantomData;
@@ -29,10 +30,13 @@ use vtable::{VTable, field_index_to_field_offset};
 use vtable_writer::VTableWriter;
 use vector::{SafeSliceAccess, Vector};
 
+#[cfg(not(feature = "std"))]
+use self::fixedvec::FixedVec;
+
 pub const N_SMALLVEC_STRING_VECTOR_CAPACITY: usize = 16;
 
 #[derive(Clone, Copy, Debug)]
-struct FieldLoc {
+pub struct FieldLoc {
     off: UOffsetT,
     id: VOffsetT,
 }
@@ -40,7 +44,25 @@ struct FieldLoc {
 /// FlatBufferBuilder builds a FlatBuffer through manipulating its internal
 /// state. It has an owned `Vec<u8>` that grows as needed (up to the hardcoded
 /// limit of 2GiB, which is set by the FlatBuffers format).
-#[derive(Clone, Debug)]
+#[cfg(not(feature = "std"))]
+#[derive(Debug)]
+pub struct FlatBufferBuilder<'fbb> {
+    owned_buf: FixedVec<'fbb, u8>,
+    head: usize,
+
+    field_locs: FixedVec<'fbb, FieldLoc>,
+    written_vtable_revpos: FixedVec<'fbb, UOffsetT>,
+
+    nested: bool,
+    finished: bool,
+
+    min_align: usize,
+
+    _phantom: PhantomData<&'fbb ()>,
+}
+
+#[cfg(feature = "std")]
+#[derive(Debug)]
 pub struct FlatBufferBuilder<'fbb> {
     owned_buf: Vec<u8>,
     head: usize,
@@ -58,6 +80,7 @@ pub struct FlatBufferBuilder<'fbb> {
 
 impl<'fbb> FlatBufferBuilder<'fbb> {
     /// Create a FlatBufferBuilder that is ready for writing.
+    #[cfg(feature = "std")]
     pub fn new() -> Self {
         Self::new_with_capacity(0)
     }
@@ -66,6 +89,7 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
     /// ready-to-use capacity of the provided size.
     ///
     /// The maximum valid value is `FLATBUFFERS_MAX_BUFFER_SIZE`.
+    #[cfg(feature = "std")]
     pub fn new_with_capacity(size: usize) -> Self {
         // we need to check the size here because we create the backing buffer
         // directly, bypassing the typical way of using grow_owned_buf:
@@ -78,6 +102,27 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
 
             field_locs: Vec::new(),
             written_vtable_revpos: Vec::new(),
+
+            nested: false,
+            finished: false,
+
+            min_align: 0,
+
+            _phantom: PhantomData,
+        }
+    }
+
+    #[cfg(not(feature = "std"))]
+    pub fn new_with_buffers(backing: FixedVec<'fbb, u8>, fields_buffer: FixedVec<'fbb, FieldLoc>,
+                            vtable_buffer: FixedVec<'fbb, UOffsetT>) -> Self {
+        let len = backing.len();
+
+        FlatBufferBuilder {
+            owned_buf: backing,
+            head: len,
+
+            field_locs: fields_buffer,
+            written_vtable_revpos: vtable_buffer,
 
             nested: false,
             finished: false,
@@ -118,6 +163,7 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
 
     /// Destroy the FlatBufferBuilder, returning its internal byte vector
     /// and the index into it that represents the start of valid data.
+    #[cfg(std)]
     pub fn collapse(self) -> (Vec<u8>, usize) {
         (self.owned_buf, self.head)
     }
@@ -362,6 +408,10 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
             id: slot_off,
             off: off,
         };
+
+        #[cfg(not(feature = "std"))]
+        self.field_locs.push(fl).expect("Ran out of size");
+        #[cfg(feature = "std")]
         self.field_locs.push(fl);
     }
 
@@ -414,7 +464,7 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
         // --------------------------------------------------------------------
 
         // fill the WIP vtable with zeros:
-        let vtable_byte_len = get_vtable_byte_len(&self.field_locs);
+        let vtable_byte_len = get_vtable_byte_len(&self.field_locs[..]);
         self.make_space(vtable_byte_len);
 
         // compute the length of the table (not vtable!) in bytes:
@@ -452,7 +502,12 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
             }
             None => {
                 let new_vt_use = self.used_space() as UOffsetT;
+
+                #[cfg(not(feature = "std"))]
+                self.written_vtable_revpos.push(new_vt_use).expect("Ran out of size");
+                #[cfg(feature = "std")]
                 self.written_vtable_revpos.push(new_vt_use);
+
                 new_vt_use
             }
         };
@@ -602,10 +657,11 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
         self.head
     }
     #[inline]
-    fn assert_nested(&self, fn_name: &'static str) {
+    fn assert_nested(&self, _fn_name: &'static str) {
         // we don't assert that self.field_locs.len() >0 because the vtable
         // could be empty (e.g. for empty tables, or for all-default values).
-        debug_assert!(self.nested, format!("incorrect FlatBufferBuilder usage: {} must be called while in a nested state", fn_name));
+        #[cfg(std)]
+        debug_assert!(self.nested, format!("incorrect FlatBufferBuilder usage: {} must be called while in a nested state", _fn_name));
     }
     #[inline]
     fn assert_not_nested(&self, msg: &'static str) {
@@ -640,6 +696,7 @@ fn padding_bytes(buf_size: usize, scalar_size: usize) -> usize {
     (!buf_size).wrapping_add(1) & (scalar_size.wrapping_sub(1))
 }
 
+#[cfg(std)]
 impl<'fbb> Default for FlatBufferBuilder<'fbb> {
     fn default() -> Self {
         Self::new_with_capacity(0)

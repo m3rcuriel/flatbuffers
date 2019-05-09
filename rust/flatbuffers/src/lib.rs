@@ -28,6 +28,8 @@
 //! At this time, to generate Rust code, you will need the latest `master` version of `flatc`, available from here: https://github.com/google/flatbuffers
 //! (On OSX, you can install FlatBuffers from `HEAD` with the Homebrew package manager.)
 
+#![cfg_attr(not(feature = "std"), no_std)]
+
 mod builder;
 mod endian_scalar;
 mod follow;
@@ -46,6 +48,11 @@ pub use push::Push;
 pub use table::{Table, buffer_has_identifier, get_root, get_size_prefixed_root};
 pub use vector::{SafeSliceAccess, Vector, follow_cast_ref};
 pub use vtable::field_index_to_field_offset;
+
+#[cfg(not(feature = "std"))]
+mod std {
+    pub use core::*;
+}
 
 // TODO(rw): Unify `create_vector` and `create_vector_direct` by using
 //           `Into<Vector<...>>`.
