@@ -1746,8 +1746,14 @@ class RustGenerator : public BaseGenerator {
   void GenNamespaceImports(const int white_spaces) {
       std::string indent = std::string(white_spaces, ' ');
       code_ += "";
-      code_ += indent + "use std::mem;";
-      code_ += indent + "use std::cmp::Ordering;";
+      code_ += indent + "#[cfg(feature = \"no_std\")]";
+      code_ += indent + "mod std {";
+      code_ += indent + "  pub use core::mem;";
+      code_ += indent + "  pub use core::cmp::Ordering;";
+      code_ += indent + "  mod slice {";
+      code_ += indent + "     pub use core::slice::from_raw_parts;";
+      code_ += indent + "  }";
+      code_ += indent + "}";
       code_ += "";
       code_ += indent + "extern crate flatbuffers;";
       code_ += indent + "use self::flatbuffers::EndianScalar;";
@@ -1788,7 +1794,6 @@ class RustGenerator : public BaseGenerator {
     for (auto j = common_prefix_size; j != new_size; ++j) {
       code_ += "#[allow(unused_imports, dead_code)]";
       code_ += "pub mod " + MakeSnakeCase(ns->components[j]) + " {";
-      // Generate local namespace imports.
       GenNamespaceImports(2);
     }
     if (new_size != common_prefix_size) { code_ += ""; }
