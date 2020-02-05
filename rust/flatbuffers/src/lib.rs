@@ -31,6 +31,7 @@
 mod builder;
 mod endian_scalar;
 mod follow;
+mod minireflect;
 mod primitives;
 mod push;
 mod table;
